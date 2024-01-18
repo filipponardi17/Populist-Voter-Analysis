@@ -1,0 +1,992 @@
+---
+title: "Homework_1_Statistical_Learning"
+author: "Filippo Nardi"
+date: "2023-10-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Statistical Learning Homework 1 Filippo Nardi
+
+In this homework i will be using the dataset of the world value survey joined with the european value survey. The dataset
+
+A variable "pol_rad" have been added as it is took by Roudjin a famous political scientist and it's the value of the reply to political self placement - 5 and the results raised to the second.\
+\
+The aim of this project is to asses wether we can find some common traits, underlying and insights from the populist voters in South Europe, specifically I chose 3 countries from the "PIGS", a derogatory acronym that has been used to designate the economies of the Southern European countries of Portugal, Italy, Greece, and Spain. Unfortunately Greece was not available in this Dataset, but I think we can still draw some good insights.
+
+The populist classification I used some sources. The first source is "The PopuList," which categorizes European parties as populist or non-populist. The second source is a book called "Cultural Backlash," which provides a numerical score to determine a party's populist status. The third source is the "Global Party Survey," which categorizes parties based on their preference for populist or pluralistic rhetoric. If no information is available, parties are labeled as "NA" or assigned a classification based on other political alliances.
+
+(I wanna emphasize that the classification pop refers to the party being a populist party, whilst lib means that the party is NON-POPULIST. It does not have to be a liberal party).
+
+In order to decrease from the 120 variables from the WVS I used the random forest algorithm, then I extracted the first 20 variables from features importance (particularly Mean Decrease Accuracy). So the study will be conducted on the first 20 variables (predictors) of populist vote following the random forest algorithm
+
+# Libraries
+
+```{r}
+library(randomForest)
+library(shapper)
+library(GGally)
+library(ggplot2)
+library(mice)
+library(VIM)
+library(caret)
+library(tidyr) 
+library(factoextra)
+library(cluster)
+library(mclust)
+library(kernlab)
+```
+
+# Data
+
+This is the data that needs to be imported, some data transformation is already made (such as the change to the variables name), I will incude the code for reducing the dataset
+
+```{r data}
+data = load("W7R.rds")
+countries_to_select <- c("Spain", "Italy", "Portugal")
+df <- W7R[W7R$cntry_name %in% countries_to_select, ]
+
+```
+
+## Feature engineering
+
+I will do some feature engineering and pre-processing. Particularly I will look how many NAs, the summary etc, no outliers are found in this dataset. Especially, here I will create the variable pop_vote based on what political party the respondents have voted for.
+
+```{r pressure, echo=FALSE}
+
+#let's check for NA, MEAN AND MEDIAN
+summary(df)
+
+
+#how many in NAs in all df
+na_count <- colSums(is.na(df))
+print(na_count)
+
+
+#le'ts create a new DF where we are going to modify some thing
+pigs <- df
+
+#let's check here
+table(pigs$E181_EVS5, useNA = "always")
+
+#i'm going to categorize different parties as pop or lib(which really means non pop)
+
+n = dim(pigs)[1] #[1] vuol dire righe, quindi qui mi sta chiedendo quante righe??
+pigs$pop_vote = rep("lib", n)
+
+#POP FOR SPAIN
+
+i1_0 = which(is.na(pigs$E181_EVS5))
+i1_1 = which(pigs$E181_EVS5 == 72420)
+i1_2 = which(pigs$E181_EVS5 == 72421)
+i1_3 = which(pigs$E181_EVS5 == 72426)
+i1_4 = which(pigs$E181_EVS5 == 72466)
+i1_5 = which(pigs$E181_EVS5 == 72404)
+pigs$pop_vote[i1_0] = NA
+pigs$pop_vote[i1_1] = NA
+pigs$pop_vote[i1_2] = NA
+pigs$pop_vote[i1_3] = NA
+pigs$pop_vote[i1_4] = NA
+pigs$pop_vote[i1_5] = NA
+
+ip_1 =which(pigs$E181_EVS5 == 72406)
+ip_2 =which(pigs$E181_EVS5 == 72407)
+ip_3 =which(pigs$E181_EVS5 == 72418)
+ip_4 =which(pigs$E181_EVS5 == 72405)
+pigs$pop_vote[ip_1] = "pop"
+pigs$pop_vote[ip_2] = "pop"
+pigs$pop_vote[ip_3] = "pop"
+pigs$pop_vote[ip_4] = "pop"
+
+
+#POP FOR ITALY
+
+i1_0 = which(is.na(pigs$E181_EVS5))
+i1_1 = which(pigs$E181_EVS5 == 38031)
+i1_2 = which(pigs$E181_EVS5 == 38066)
+pigs$pop_vote[i1_0] = NA
+pigs$pop_vote[i1_1] = NA
+pigs$pop_vote[i1_2] = NA
+
+
+ip_1 =which(pigs$E181_EVS5 == 38002)
+ip_2 =which(pigs$E181_EVS5 == 38009)
+ip_3 =which(pigs$E181_EVS5 == 38011)
+ip_4 =which(pigs$E181_EVS5 == 38012)
+ip_5 =which(pigs$E181_EVS5 == 38013)
+ip_6 =which(pigs$E181_EVS5 == 38014)
+ip_7 =which(pigs$E181_EVS5 == 38015)
+ip_8 =which(pigs$E181_EVS5 == 38016)
+pigs$pop_vote[ip_1] = "pop"
+pigs$pop_vote[ip_2] = "pop"
+pigs$pop_vote[ip_3] = "pop"
+pigs$pop_vote[ip_4] = "pop"
+pigs$pop_vote[ip_5] = "pop"
+pigs$pop_vote[ip_6] = "pop"
+pigs$pop_vote[ip_7] = "pop"
+pigs$pop_vote[ip_8] = "pop"
+
+
+#POP FOR PORTUGAL
+
+
+i1_0 = which(is.na(pigs$E181_EVS5))
+i1_4 = which(pigs$E181_EVS5 == 62001)
+i1_1 = which(pigs$E181_EVS5 == 62005)
+i1_2 = which(pigs$E181_EVS5 == 62024)
+i1_3 = which(pigs$E181_EVS5 == 62066)
+pigs$pop_vote[i1_0] = NA
+pigs$pop_vote[i1_1] = NA
+pigs$pop_vote[i1_2] = NA
+pigs$pop_vote[i1_3] = NA
+pigs$pop_vote[i1_4] = NA
+
+
+ip_1 =which(pigs$E181_EVS5 == 62008)
+ip_2 =which(pigs$E181_EVS5 == 62011)
+pigs$pop_vote[ip_1] = "pop"
+pigs$pop_vote[ip_2] = "pop"
+
+table(pigs$pop_vote)
+
+pigs$pop_vote = as.factor(pigs$pop_vote)
+
+
+
+#let'omit data with NA in pop_vote
+
+pigs <- pigs[!is.na(pigs$pop_vote),]
+
+
+#Now let's drop cntry_name and E181_EVS5 and use a new name 
+pigs <- pigs[, !(names(pigs) == "E181_EVS5")]
+pigs <- pigs[, !(names(pigs) == "cntry_name")]
+
+#unfortunately income level is not declared for portugal (probably legal reasons)
+drop <- c("incm_lvl")
+pigs = pigs[,!(names(pigs) %in% drop)]
+
+
+na_count <- colSums(is.na(pigs))
+print(na_count)
+
+
+
+
+```
+
+# Data imputation
+
+As we have some NAs we need to impute the data.
+
+I actually need to impute even to do feature selection with Random Forest.
+
+I also will look at some missing patterns and remove duplicates.
+
+```{r}
+
+#LET'S SEE SOME MISSING DATA PATTERNS:
+
+md.pattern(pigs)
+aggr(pigs, number = TRUE, sortVars= TRUE, labels = names(pigs), cex.axis = .7, gap = 1, ylab=c('missing data','Pattern'))
+
+#At the moment there are too many variables to see correctly,  in order to show something i will be using the first 20 vars. This is not how you would do it but is to show some plots
+
+md.pattern(pigs[1:300,1:20])
+aggr(pigs[,1:20], number = TRUE, sortVars= TRUE, labels = names(pigs[,1:20]), cex.axis = .7, gap = 1, ylab=c('missing data','Pattern'))
+
+
+
+library(mice)
+
+#LET'S IMPUTE THE NAs
+imputed_pigs <- mice(pigs, m = 5, maxit = 5, method = "pmm", seed = 123)
+
+complete_pigs <- complete(imputed_pigs)
+
+#save(complete_pigs, file= "complete_pigs.rda")
+#load("complete_pigs.rda")
+
+
+#remove dupes 
+
+pigs <- complete_pigs[!duplicated(complete_pigs), ]
+
+
+#let's make sure we have no NAs
+
+na_count <- colSums(is.na(pigs))
+print(na_count)
+
+#we have none
+```
+
+So now we have an imputed dataset with no duplicates and no NAs. Now I will perform the feature Selection using the Random Forest.
+
+# Feature Engineering 2, feature selection
+
+I want to point out that the step is made to reduced the number of variables, as working with 120 will increases computing and will make every plot look bad. I know that this is not an optimal procedure but you get the idea.
+
+I will compute 2 different Random forest, one with scaled data and one without scaled data. This because when i started doing the homework I had a clear idea about how, when scaling data, you lose much of the uniqueness that is provide from survey data. Also the WVS uses the Likert scale to measure attitudes and opinions.
+
+This will mean that we will obtain 2 different dataframes, pigs1 which is not scaled and pigs2 which is scaled. What is also important to point out is how the 2 dataframes will also have different variables.
+
+So what I will obtain is a dataframe (actually two, one scaled and one not) containing the first 20 variables that predicts, using a Random Forest, populist voters in Spain, Portugal and Italy according to feature importance, Mean Decrease Accuracy.
+
+```{r}
+
+
+#basically all of this code it's just to exclude pop_vote from scaling
+numeric_vars_to_scale <- sapply(pigs, is.numeric)
+
+numeric_vars_to_scale["pop_vote"] <- FALSE
+
+scaled_df <- pigs
+
+scaled_df[, numeric_vars_to_scale] <- scale(scaled_df[, numeric_vars_to_scale])
+
+
+# I will be using Random Forest feature importance to obtain the first 20 variables to predict pop_vote scaled and not scaled:
+
+#NOT SCALED 
+
+set.seed(123)
+
+pop_rf = randomForest(pop_vote ~ ., data=pigs, na.action = na.roughfix,
+                               proximity = T,
+                               ntree=500, mtry=4, importance=TRUE)
+
+
+
+
+t = importance(pop_rf)
+t1 = sort(t[,3], decreasing = T)
+t2 = t1[1:20] #20 predictor in decreasing order
+importance_vars = names(t2) #IN T2 THERE ARE NAMED VECTORS, TO ACCESS NAMES WE DO THIS
+print(importance_vars) #CHECK CORRECT NAMES
+
+# List of variables to keep 
+variables_to_keep <- c("pol_sp", "el_fair", "el_brb", "c_eu1", "el_rch", "cls_eu", "imp_imm", "age", "edu_lvl", "trs_knw", "gvr_vds", "cls_cnt", "pol_rad", "cls_vlg", "cls_rgn", "c_prs", "ps_sat", "c_cvl", "cls_wrl", "prd")
+
+# Create a new data frame with only the selected variables
+pigs1 <- pigs[, variables_to_keep]
+
+
+
+#SCALED
+
+
+set.seed(123)
+
+pop_rf2 = randomForest(pop_vote ~ ., data=scaled_df, # na.action = na.roughfix,
+                               proximity = T,
+                               ntree=500, mtry=4, importance=TRUE)
+
+
+
+
+t2 = importance(pop_rf)
+t12 = sort(t[,3], decreasing = T)
+t22 = t1[1:20] #20 predictor in decreasing order
+importance_vars = names(t22) #IN T2 THERE ARE NAMED VECTORS, TO ACCESS NAMES WE DO THIS
+print(importance_vars2) #CHECK CORRECT NAMES
+
+
+variables_to_keep2 <- c("pol_sp", "el_fair", "el_brb", "c_eu1", "el_rch", "imp_imm", "cls_eu", "age", "edu_lvl", "gvr_vds", "trs_knw", "pol_rad", "cls_cnt", "el_jrn", "hom_prn", "js_dthp", "cls_rgn", "c_uns", "ps_exp", "c_cvl")
+
+pigs2 <- scaled_df[, variables_to_keep2]
+```
+
+\
+
+# Visualization and descriptive analysis:
+
+```{r}
+dim(pigs1)
+str(pigs1)
+head(pigs1)
+tail(pigs1)
+summary(pigs1)
+
+
+dim(pigs2)
+str(pigs2)
+head(pigs2)
+tail(pigs2)
+summary(pigs2)
+
+
+
+#NON SCALED
+boxplot(pigs1, las=2, col="darkblue")
+
+#scaled it's better
+boxplot(scale(pigs1), las=2, col="darkblue")
+
+# let's see the correlation matrix:
+ggcorr(pigs1)
+
+#heatmap
+heatmap(cor(pigs1))
+
+#SCALED
+
+ggcorr(pigs2)
+
+#heatmap
+heatmap(cor(pigs2))
+
+
+```
+
+From here we can see that the correlations plots look similar with no variable having major correlations towards others in both dataframes
+
+# PCA
+
+### PCA unscaled
+
+```{r}
+#PCA 
+
+pca = prcomp(pigs1, scale=T)
+pcaa = princomp(pigs1, cor=T) # the same, but using SVD instead of eigen decomposition 
+summary(pca)
+summary(pcaa)
+
+
+screeplot(pca,main="Screeplot",col="blue",type="barplot",pch=19)
+
+fviz_screeplot(pca, addlabels = TRUE)
+fviz_screeplot(pcaa, addlabels = TRUE)
+
+# A PCA with 3 Dimensions should work well
+
+barplot(pca$rotation[,1], las=2, col="darkblue")
+
+print(pca$rotation[,1])
+
+fviz_contrib(pca, choice = "var", axes = 1)
+
+#here we can see how closeness to eu and closeness to country give the most contributions to PCA
+
+#SECOND COMPONENT:
+barplot(pca$rotation[,2], las=2, col="darkblue")
+
+print(pca$rotation[,2])
+
+fviz_contrib(pca, choice = "var", axes = 2)
+
+#Here we can see that the political self placement and proudness of nationality are the major instances 
+
+#THIRD COMPONENT:
+
+barplot(pca$rotation[,3], las=2, col="darkblue")
+
+print(pca$rotation[,3])
+
+fviz_contrib(pca, choice = "var", axes = 3)
+
+
+```
+
+So from this data we can see that the first 3 components have a Proportion of Variance of :0.1878, 0.1013 and 0.09292. This means that about 40% of Data is explained by the first 3 Principal components. To get up to 50 we would also to need to use up to 5 components and for 80 up to 11 components. Since our goal here is dimensionality reduction I will be using the first 3.
+
+The first component have for highest values: cls_eu, cls_rgn and cls_cnt which stands for for closeness to the European Union, Region and Country. A bit of a Closeness aggregate.
+
+The second component have for highest values: pol_sp, prd and edu_lvl which stands for political self placement, proudness of nationality and education level
+
+The third component have for highest values by far are 2 variables: el_brb and el_rch which stands for elections bribery and elections bought by rich people.
+
+### Biplot unscaled
+
+```{r}
+#let's see using BIPLOT
+
+#here we can see the directions of the different variables
+biplot(pca)
+
+fviz_pca_var(pca, col.var = "contrib")
+
+fviz_pca_biplot(pca, repel = TRUE)
+```
+
+A biplot, in this context with the principal component analysis (PCA), is a graphical representation that combines information about the observations (data points) and the variables (features) in a PCA. It allows to visualize how the original variables contribute to the principal components and how the observations are distributed in the reduced-dimensional space created by PCA.
+
+In this case we can appreciate the direction, and how much using the color: the lighter the more strong is the contributions. We clearly see the aggregate of closeness in the upper right quadrant, the el_brb and el_rch in the left upper quadrant.
+
+### PCA scaled
+
+```{r}
+
+
+
+pca2 = prcomp(pigs2, scale=T)
+pcaa2 = princomp(pigs2, cor=T) 
+summary(pca2)
+summary(pcaa2)
+
+screeplot(pca2,main="Screeplot",col="blue",type="barplot",pch=19)
+
+fviz_screeplot(pca2, addlabels = TRUE)
+fviz_screeplot(pcaa2, addlabels = TRUE)
+
+# A PCA with 3 Dimensions should work well
+
+barplot(pca2$rotation[,1], las=2, col="darkblue")
+
+print(pca2$rotation[,1])
+
+fviz_contrib(pca2, choice = "var", axes = 1)
+
+#here we can see how closeness to eu and confidence to eu
+
+#SECOND COMPONENT:
+barplot(pca2$rotation[,2], las=2, col="darkblue")
+
+print(pca2$rotation[,2])
+
+fviz_contrib(pca2, choice = "var", axes = 2)
+
+#Here we can see that the age, education level and opinions about homosexuals parents are the major instances 
+
+#THIRD COMPONENT:
+
+barplot(pca2$rotation[,3], las=2, col="darkblue")
+
+print(pca2$rotation[,3])
+
+fviz_contrib(pca2, choice = "var", axes = 3)
+```
+
+With scaled data, the first 3 components have a proportion of variance of: 0.1649 0.09469 0.08038, so a total of about 35% against a total of 40% for the unscaled data; so it's safe to say that here scaled data is performing a bit worse.
+
+The first component have for highest values: cls_eu, c_eu1 and el_fair which stands for for closeness to the European Union, confidence of the European Union and fairness of the Election
+
+The second component have for highest values: age, edu_lvl and hom_prn which stands for the age of the respondent, the education level and the opinion about homosexual parents.
+
+The third component have for highest values by far are 2 variables: el_brb and el_rch which stands for elections bribery and elections bought by rich people. The same as in unscaled data.
+
+### Biplot scaled
+
+```{r}
+#let's see using BIPLOT
+
+#here we can see the directions of the different variables
+biplot(pca2)
+
+fviz_pca_var(pca2, col.var = "contrib")
+
+fviz_pca_biplot(pca2, repel = TRUE)
+
+```
+
+Regarding the biplot we can appreciate some difference, from the scaled to non scaled. We can see the variables that contributes the most here such as el_brb and el_rch reacing towards the bottom left part, whereas pol_sp in reaching the bottom right part. Having thus a fundamentally different positioning than in the unscaled model.
+
+# Factor Analysis
+
+### FA unscaled data
+
+```{r}
+
+# using 3 factors
+
+x.f <- factanal(pigs1, factors = 3, rotation="none", scores="regression")
+x.f
+cbind(x.f$loadings, x.f$uniquenesses)
+
+```
+
+Plots for 3 Factors:
+
+```{r}
+
+par(mfrow=c(3,1))
+barplot(x.f$loadings[,1], names=names(pigs1), las=2, col="darkblue", ylim = c(-1, 1))
+barplot(x.f$loadings[,2], names=names(pigs1), las=2, col="darkblue", ylim = c(-1, 1))
+barplot(x.f$loadings[,3], names=names(pigs1), las=2, col="darkblue", ylim = c(-1, 1))
+```
+
+Trying with 3 factors:
+
+So about this factor analysis, we can see that the uniqueness, value that represent the proportion of variance in each variable, range from 0.142 to 0.992.
+
+For the proportional variance, the value that represents the proportion of variance explained by each factor, in my case is: Factor1 explains about 15.2% of the variance, Factor2 explains about 7.6%, and Factor3 explains about 5.9%. A total of about 30%.
+
+Loadings:
+
+For factor1 "cls_eu", "cls_cnt", "cls_vlg", "cls_rgn", "cls_wrl", "prd" and "c_prs" have a high positive values.
+
+For factor2 "el_brb", "el_rch", "cls_cnt", "cls_vlg", "cls_rgn", "c_prs", "c_cvl" and "prd" have a high positive values
+
+For factor3 ""pol_sp", "c_eu1" and "pol_rad" have a high positive values
+
+Additionally we can see the plots that graphically shows the values of the loadings for this Factor analysis
+
+```{r}
+
+#let's try with 2 factors
+
+x.f2 <- factanal(pigs1, factors = 2, rotation="none", scores="regression")
+x.f2
+cbind(x.f2$loadings, x.f2$uniquenesses)
+
+
+```
+
+plots for 2 factors:
+
+```{r}
+
+par(mfrow=c(2,1))
+barplot(x.f2$loadings[,1], names=names(pigs1), las=2, col="darkblue", ylim = c(-1, 1))
+barplot(x.f2$loadings[,2], names=names(pigs1), las=2, col="darkblue", ylim = c(-1, 1))
+```
+
+Trying with 2 factors:
+
+So about this factor analysis, we can see that the uniqueness, value that represent the proportion of variance in each variable, range from 0.205 to 0.997.
+
+For the proportional variance, the value that represents the proportion of variance explained by each factor, in my case is: Factor1 explains about 14.7% of the variance, and Factor2 explains about 7.3% of the variance. Total of about 22%, so lower than the 3 factors.
+
+Loadings:
+
+For factor1 "cls_eu", "cls_wrl" have a high positive values.
+
+For factor2 "el_brb", "el_rch", "cls_cnt", "cls_vlg", "cls_rgn", "c_cvl" and "prd." have a high positive values
+
+Additionally we can see the plots that graphically shows the values of the loadings for this Factor analysis
+
+### Scores for 3 factors:
+
+```{r}
+
+factor.df <- as.data.frame(x.f$scores)
+
+factor.df <- factor.df %>%
+  gather("factor", "score")
+
+# Create a bar plot
+factor.df %>%
+  ggplot(aes(x = factor, y = score, fill = factor)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Factor Scores", x = "Factors", y = "Scores") +
+  scale_fill_brewer(palette = "Dark2")
+
+# Create a box plot
+factor.df %>%
+  ggplot(aes(x = factor, y = score, fill = factor)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Factor Scores", x = "Factors", y = "Scores") +
+  scale_fill_brewer(palette = "Dark2")
+
+
+```
+
+### Scores for 2 factors:
+
+```{r}
+
+factor.df <- as.data.frame(x.f2$scores)
+
+factor.df <- factor.df %>%
+  gather("factor", "score")
+
+# Create a bar plot
+factor.df %>%
+  ggplot(aes(x = factor, y = score, fill = factor)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Factor Scores", x = "Factors", y = "Scores") +
+  scale_fill_brewer(palette = "Dark2")
+
+# Create a box plot
+factor.df %>%
+  ggplot(aes(x = factor, y = score, fill = factor)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Factor Scores", x = "Factors", y = "Scores") +
+  scale_fill_brewer(palette = "Dark2")
+```
+
+Here we can see plots for the scores of the 2 and 3 factors for unscaled data
+
+### FA scaled data
+
+```{r}
+
+# using 3 factors
+
+x.f1 <- factanal(pigs2, factors = 3, rotation="none", scores="regression")
+x.f1
+cbind(x.f1$loadings, x.f$uniquenesses)
+
+```
+
+Plots for 3 Factors:
+
+```{r}
+
+par(mfrow=c(3,1))
+barplot(x.f1$loadings[,1], names=names(pigs2), las=2, col="darkblue", ylim = c(-1, 1))
+barplot(x.f1$loadings[,2], names=names(pigs2), las=2, col="darkblue", ylim = c(-1, 1))
+barplot(x.f1$loadings[,3], names=names(pigs2), las=2, col="darkblue", ylim = c(-1, 1))
+```
+
+Trying with 3 factors:
+
+So about this factor analysis, we can see that the uniqueness, value that represent the proportion of variance in each variable, range from 0.261 to 0.994.
+
+For the proportional variance, the value that represents the proportion of variance explained by each factor, in my case is: Factor1 explains about 12.7% of the variance, Factor2 explains about 6.6%, and Factor3 explains about 5.8% of the variance. So a total of about 25% lower, lower than unscaled by 5%.
+
+Loadings:
+
+For factor1 "el_fair", "c_eu1", "cls_eu", "trs_knw", "cls_cnt" have a high positive values.
+
+For factor2 "pol_sp", "c_uns", "c_cvl" have a high positive values
+
+For factor3 "el_brb", "el_rch" , "cls_rgn" and "cls_eu" have a high positive values
+
+Additionally we can see the plots that graphically shows the values of the loadings for this Factor analysis
+
+```{r}
+
+#let's try with 2 factors
+
+x.f12 <- factanal(pigs2, factors = 2, rotation="none", scores="regression")
+x.f12
+cbind(x.f12$loadings, x.f2$uniquenesses)
+
+
+```
+
+plots for 2 factors:
+
+```{r}
+
+par(mfrow=c(2,1))
+barplot(x.f12$loadings[,1], names=names(pigs2), las=2, col="darkblue", ylim = c(-1, 1))
+barplot(x.f12$loadings[,2], names=names(pigs2), las=2, col="darkblue", ylim = c(-1, 1))
+```
+
+Trying with 2 factors:
+
+So about this factor analysis, we can see that the uniqueness, value that represent the proportion of variance in each variable, range from 0.141 to 0.995.
+
+For the proportional variance, the value that represents the proportion of variance explained by each factor, in my case is: FFactor1 explains about 11.8% of the variance, and Factor2 explains about 6.8% of the variance. Total of about 18%, so lower than the 3 factors(scaled and unscaled) and also lower than 2 factors unscaled.
+
+Loadings:
+
+For factor1 "el_fair","c_eu1" and "cls_eu" have a high positive values.
+
+For factor2 "el_brb", "el_rch", "cls_eu", "c_eu" and "pol_sp" have a high positive values
+
+Additionally we can see the plots that graphically shows the values of the loadings for this Factor analysis
+
+### Scores for 3 factors:
+
+```{r}
+
+factor.df <- as.data.frame(x.f1$scores)
+
+factor.df <- factor.df %>%
+  gather("factor", "score")
+
+# Create a bar plot
+factor.df %>%
+  ggplot(aes(x = factor, y = score, fill = factor)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Factor Scores", x = "Factors", y = "Scores") +
+  scale_fill_brewer(palette = "Dark2")
+
+# Create a box plot
+factor.df %>%
+  ggplot(aes(x = factor, y = score, fill = factor)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Factor Scores", x = "Factors", y = "Scores") +
+  scale_fill_brewer(palette = "Dark2")
+
+
+```
+
+### Scores for 2 factors:
+
+```{r}
+
+factor.df <- as.data.frame(x.f12$scores)
+
+factor.df <- factor.df %>%
+  gather("factor", "score")
+
+# Create a bar plot
+factor.df %>%
+  ggplot(aes(x = factor, y = score, fill = factor)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Factor Scores", x = "Factors", y = "Scores") +
+  scale_fill_brewer(palette = "Dark2")
+
+# Create a box plot
+factor.df %>%
+  ggplot(aes(x = factor, y = score, fill = factor)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Factor Scores", x = "Factors", y = "Scores") +
+  scale_fill_brewer(palette = "Dark2")
+```
+
+Here we can see plots for the scores of the 2 and 3 factors for scaled data
+
+# Clustering
+
+### K-means
+
+```{r}
+
+k = 3
+fit = kmeans(pigs1, centers=k, nstart=1000)
+groups = fit$cluster
+barplot(table(groups), col="blue")
+
+centers=fit$centers
+
+barplot(centers[1,], las=2, col="darkblue")
+barplot(centers[2,], las=2, col="darkblue")
+barplot(centers[3,], las=2, col="darkblue")
+
+fviz_cluster(fit, data = pigs1, geom = c("point"),ellipse.type = 'norm', pointsize=1)+
+  theme_minimal()+scale_fill_brewer(palette="Paired")
+
+fit.kmeans <- eclust(pigs1, "kmeans", stand=TRUE, k=3)
+```
+
+### K-means scaled
+
+```{r}
+k2 = 3
+fit2 = kmeans(pigs2, centers=k2, nstart=1000)
+groups2 = fit$cluster
+barplot(table(groups2), col="blue")
+
+centers2=fit2$centers
+
+#INTERPRETATION OF THE CENTER
+barplot(centers2[1,], las=2, col="darkblue")
+barplot(centers2[2,], las=2, col="darkblue")
+barplot(centers2[3,], las=2, col="darkblue")
+
+
+fviz_cluster(fit2, data = pigs2, geom = c("point"),ellipse.type = 'norm', pointsize=1)+
+  theme_minimal()+scale_fill_brewer(palette="Paired")
+
+fit.kmeans <- eclust(pigs2, "kmeans", stand=TRUE, k=3)
+
+```
+
+Upon a few tries, the best k for this scenario it's 3, especially for scaled data.
+
+In the unscaled plot we cannot really says much, most of the data is in the center and the clusters are overlaps each others
+
+Upon other tries, it's very clear that scaled data works way better for this clustering scenario, so from here forward I will be only using scaled data (pigs2 dataset) for this homework, thus I won't describe in detail the unscaled clusters.
+
+Whilst in the scaled plot, in both plot (fviz_cluster and eclust) we can see a very clear separation between the 3 clusters in the edges even if it's in the middle of the plot tehy still overlap each others.
+
+We can see how are composed the 3 clusters:
+
+Cluster 1 has high values for: pol_sp, el_fair, c_eu and cls_eu
+
+Cluster 2 has high values for: imp_imm and edu_lvl
+
+Cluster 3 has high values for el_brb, el_rch and age.
+
+#### Let' try to see the optimal number of cluster:
+
+```{r}
+# THIS IS HOW TO CALCULATE AN OPTIMAL NUMBER OF CLUSTER, the results here would be 10, but upon trying I don't think we can useful insights of the data
+
+library(fpc)
+gap_stat <- clusGap(pigs2, FUN = kmeans, nstart = 25, K.max = 10, B = 50)
+plot(gap_stat)
+print(gap_stat)
+```
+
+### Silhoutte plot
+
+```{r}
+d <- dist(pigs2, method="euclidean")  
+sil = silhouette(groups, d)
+plot(sil, col=1:5, main="", border=NA)
+summary(sil)
+
+# the same with factoextra
+fviz_silhouette(fit.kmeans)
+
+```
+
+The silhouette analysis results show that Cluster 2 has the highest average silhouette width and is relatively well-clustered, while Cluster 3 has a negative average silhouette width, indicating that its data points may not be well-suited to the cluster. The individual silhouette widths provide information about the quality of each data point's assignment to its cluster, with negative values indicating potential misclassification
+
+#### Number of groups?
+
+```{r}
+fviz_nbclust(pigs2, kmeans, method = 'silhouette', k.max = 10, nstart = 1000)
+fviz_nbclust(pigs2, kmeans, method = 'wss', k.max = 10, nstart = 1000)
+```
+
+This is some code that should tell us what is the optimal number for clusters
+
+Silhoutte gives results: 2 as optimal number of clusters
+
+WSS gives results: The "elbow" here (where the decrease start to be significant is around 3 or 4, so 3 or 4 clusters
+
+### PAM
+
+PAM (Partitioning Around Medoids) is a clustering algorithm that groups data points into clusters based on their similarities. It uses medoids, which are actual data points, as cluster representatives. PAM starts with an initial selection of medoids, assigns data points to the nearest medoids, and iteratively refines the medoid selection to minimize the dissimilarity within clusters. PAM is less sensitive to outliers than k-means and is useful when you want robust cluster representatives.
+
+```{r}
+fit.pam <- eclust(pigs2, "pam", stand=TRUE, k=3, graph=F)
+
+fviz_cluster(fit.pam, data = pigs2, geom = c("point"), pointsize=1)+
+  theme_minimal()+scale_fill_brewer(palette="Paired")
+```
+
+Using PAM we can see once again a well defined separation in the 3 clusters, but a bit more focused in the center of the plot
+
+#### Number of clusters PAM:
+
+```{r}
+
+fviz_nbclust(pigs2, pam, method = 'silhouette', k.max = 10)
+#fviz_nbclust(pigs2, pam, method = 'gap_stat', k.max = 10, nboot = 100)
+```
+
+PAM SILHOUTTE gives 2 as results for optimal number of clusters
+
+### Kernel K-Means (non scaled)
+
+```{r}
+
+
+fit.ker <- kkmeans(as.matrix(pigs1), centers=3, kernel="rbfdot") # Radial Basis kernel (Gaussian))
+# By default, Gaussian kernel is used
+# By default, sigma parameter is estimated
+
+centers(fit.ker)
+size(fit.ker)
+withinss(fit.ker)
+
+object.ker = list(data = pigs1, cluster = fit.ker@.Data)
+fviz_cluster(object.ker, geom = c("point"), ellipse=F,pointsize=1)+
+  theme_minimal()+scale_fill_brewer(palette="Paired")
+```
+
+The clusters overlaps each others, we don't have a nice separation.
+
+### Kernel K-Means with scaled data:
+
+```{r}
+
+fit.ker <- kkmeans(as.matrix(pigs2), centers=3, kernel="rbfdot") # Radial Basis kernel (Gaussian))
+# By default, Gaussian kernel is used
+# By default, sigma parameter is estimated
+
+centers(fit.ker)
+size(fit.ker)
+withinss(fit.ker)
+
+centers3 <- centers(fit.ker)
+
+barplot(centers3[1,], names= names(pigs2), las=2, col="darkblue")
+barplot(centers3[2,], names= names(pigs2), las=2, col="darkblue")
+barplot(centers3[3,], names= names(pigs2), las=2, col="darkblue")
+
+object.ker = list(data = pigs2, cluster = fit.ker@.Data)
+fviz_cluster(object.ker, geom = c("point"), ellipse=F,pointsize=1)+
+  theme_minimal()+scale_fill_brewer(palette="Paired")
+```
+
+We can see a better separation for the data, even if mostly they are in the center of the plot with cluster 1 on the left side, cluster 2 in the middle and cluster 3 on the right side. Much better than on the unscaled data.
+
+We can also see the centers for the scaled data:
+
+\
+For clutster 1 the highest value are: el_brb, el_rch and imp_imm
+
+For clutster 2 the highest value are: edu_lvl, cls_cnt and cls_rgn
+
+For clutster 3 the highest value are: pol_sp, el_fair, c_eu1, cls_eu, age, and hom_prn
+
+### Let's look at the hierarchical clustering
+
+```{r}
+
+d = dist(scale(pigs2), method = "euclidean")
+hc <- hclust(d, method = "ward.D2") 
+
+#first let's look at the dendrogram
+fviz_dend(x = hc, 
+          k=3,
+          palette = "jco", 
+          rect = TRUE, rect_fill = TRUE, cex=0.5,
+          rect_border = "jco"          
+)
+
+```
+
+In the dendogram it's difficult to understand what is telling us, especially becasue these observation don't have a particular name as the survey needs to be anonymous.
+
+```{r}
+
+fviz_dend(x = hc,
+          k = 3,
+          color_labels_by_k = TRUE,
+          cex = 0.8,
+          type = "phylogenic",
+          repel = TRUE)++ theme(axis.text.x=element_blank(),axis.text.y=element_blank())
+
+```
+
+Also the phlyogenic tree does not really tells us much.
+
+### EM CLUSTERING
+
+```{r}
+res.Mclust <- Mclust(pigs2)
+summary(res.Mclust)
+
+# for each observation we don't have a unique group but the probabilities the obs belongs to each of the groups
+head(res.Mclust$z)
+
+# Of course the tool assign the group with highest probability  
+head(res.Mclust$classification)
+
+fviz_mclust(object = res.Mclust, what = "BIC", pallete = "jco") +
+  scale_x_discrete(limits = c(1:10))
+
+fviz_mclust(object = res.Mclust, what = "classification", geom = "point",
+            pallete = "jco")
+```
+
+In this chunk we see that the optimal number of clustering should be 8, but if we run the plot below we can see that graphically it does not do an awesome job as basically every cluster overlap each other and each cluster is mostly based in the center, the more sparse data points just don't get captured by a cluster.
+
+### Heatmap
+
+```{r}
+numeric_data <- as.matrix(pigs2)
+heatmap(numeric_data, scale = "none",
+        distfun = function(x){dist(x, method = "euclidean")},
+        hclustfun = function(x){hclust(x, method = "ward.D2")},
+        cexRow = 0.7)
+
+```
+
+This code generates a heatmap with hierarchical clustering applied to both rows and columns. It's useful for visualizing patterns and relationships in the data. We can see that no particular region prevail in an other one. A bit more maybe pol_sp and pol_rad which are related to one another.
+
+# Conclusion
+
+While I have not found a specific method for detecting a populist voter based on their survey responses, I believe I have gained some insights into variables that may be related to populist voters. For instance, in both Principal Component Analysis (PCA), Clustering, and Factor Analysis, the variables that consistently appeared as the most significant were those related to elections, such as election bribery and elections controlled by wealthy individuals (el_brb and el_rch). These variables serve as proxies for the skepticism within the democratic system, a common trait often associated with populism in the fields of political science and sociology. Other notable variables in this study include political self-placement and political radicalization (pol_sp and pol_rad), indicating a strong connection between extremism and populism. Additionally, confidence and closeness to the European Union (c_eu1 and cls_eu) emerged as prevalent variables, reaffirming the correlation between this research and the established findings in sociological research, which frequently highlight populism's attempts to delegitimize international organizations. This study has undeniably contributed to a better understanding of the matter and validated certain sociological theoretical works.
